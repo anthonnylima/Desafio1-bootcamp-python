@@ -1,177 +1,255 @@
+from datetime import datetime
 
-saldo = 0.00
-limite = 500.00
-extrato = ""
-numero_saques = 0
+AGENCIA = "0001"
 LIMITE_SAQUES = 3
+
 usuarios = []
 lista_cpf = []
 contas = []
-AGENCIA = "0001"
+
+
+contador_contas = 0  
+
+
+
+def log_transacao(funcao):
+    def wrapper(*args, **kwargs):
+        hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        resultado = funcao(*args, **kwargs)
+        print("-" * 40)
+        print(f"Data/Hora: {hora}")
+        print(f"Operação: {funcao.__name__.capitalize()}")
+        return resultado
+    return wrapper
+
+
+
+class ContaIterador:
+    def __init__(self, contas):
+        self.contas = contas
+        self.index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.index < len(self.contas):
+            conta = self.contas[self.index]
+            self.index += 1
+            return conta
+        raise StopIteration
+
+
+
+def gerador_relatorios(transacoes):
+    filtro = input(
+        "\nDeseja filtrar as transações?\n"
+        "[D] Depósitos\n"
+        "[S] Saques\n"
+        "[0] Todas\n"
+        "Escolha: "
+    ).upper()
+
+    for t in transacoes:
+        if filtro == "D" and t["tipo"] == "Deposito":
+            yield t
+        elif filtro == "S" and t["tipo"] == "Saque":
+            yield t
+        elif filtro == "0":
+            yield t
+
 
 def criar_conta_corrente(cpf):
-    usuario = None
-    for u in usuarios:
-        if u["cpf"] == cpf:
-            usuario = u
-            break
+    global contador_contas
 
-    if usuario is None:
-        print("Usuário não encontrado! Conta não criada.")
+    usuario = next((u for u in usuarios if u["cpf"] == cpf), None)
+
+    if not usuario:
+        print("Usuário não encontrado.")
         return None
 
-    numero_conta = len(contas) + 1  
+    contador_contas += 1
+    numero_conta = contador_contas
 
     conta = {
         "agencia": AGENCIA,
         "numero": numero_conta,
-        "usuario": usuario
+        "usuario": usuario,
+        "saldo": 0.0,
+        "extrato": "",
+        "numero_saques": 0,
+        "transacoes": []
     }
 
     contas.append(conta)
 
-    print(f"Conta criada! Agência: {AGENCIA} Conta: {numero_conta}")
+    print("Conta criada com sucesso!")
+    print(f"Agência: {AGENCIA} | Conta: {numero_conta}")
     return conta
 
 
+@log_transacao
 def cadastrar(nome, numero, endereco, cpf):
-    dados_usuario = {
+    usuarios.append({
         "nome": nome,
         "numero": numero,
         "endereco": endereco,
         "cpf": cpf
-    }
+    })
     lista_cpf.append(cpf)
-    usuarios.append(dados_usuario)
-    return usuarios, lista_cpf
 
 
-def depositar(saldo, extrato, /):
-    valor = float(input("Informe o valor do depósito: "))
+@log_transacao
+def depositar(conta):
+    valor = float(input("Valor do depósito: "))
+
     if valor > 0:
-        saldo += valor
-        extrato += f"Depósito: R$ {valor:.2f}\n"
+        data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+        conta["saldo"] += valor
+        conta["extrato"] += f"Depósito: R$ {valor:.2f}\n"
+
+        conta["transacoes"].append({
+            "descricao": f"Depósito de R$ {valor:.2f}",
+            "tipo": "Deposito",
+            "data_hora": data_hora
+        })
     else:
-        print("Operação falhou! O valor informado é inválido.")
-    return saldo, extrato
+        print("Valor inválido.")
 
 
-def sacar(*, saldo, limite, LIMITE_SAQUES, extrato, numero_saques):
-    valor = float(input("Informe o valor do saque: "))
 
-    excedeu_saldo = valor > saldo
-    excedeu_limite = valor > limite
-    excedeu_saques = numero_saques >= LIMITE_SAQUES
+@log_transacao
+def sacar(conta):
+    valor = float(input("Valor do saque: "))
 
-    if excedeu_saldo:
-        print("Operação falhou! Você não tem saldo suficiente.")
-    elif excedeu_limite:
-        print("Operação falhou! O valor do saque excede o limite.")
-    elif excedeu_saques:
-        print("Operação falhou! Número máximo de saques excedido.")
+    if valor > conta["saldo"]:
+        print("Saldo insuficiente.")
+    elif valor > 500:
+        print("Limite excedido.")
+    elif conta["numero_saques"] >= LIMITE_SAQUES:
+        print("Limite de saques atingido.")
     elif valor > 0:
-        saldo -= valor
-        extrato += f"Saque: R$ {valor:.2f}\n"
-        numero_saques += 1
+        data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+        conta["saldo"] -= valor
+        conta["extrato"] += f"Saque: R$ {valor:.2f}\n"
+        conta["numero_saques"] += 1
+
+        conta["transacoes"].append({
+            "descricao": f"Saque de R$ {valor:.2f}",
+            "tipo": "Saque",
+            "data_hora": data_hora
+        })
     else:
-        print('Operação falhou! O valor informado é inválido')
-
-    return saldo, extrato, numero_saques
+        print("Valor inválido.")
 
 
-def tirar_extrato(extrato, saldo):
-    print("\n================ EXTRATO ================")
-    print("Não foram realizadas movimentações." if not extrato else extrato)
-    print(f"\nSaldo: R$ {saldo:.2f}")
-    print("==========================================")
+
+@log_transacao
+def tirar_extrato(conta):
+    print("\n=========== EXTRATO ===========")
+    print(conta["extrato"] if conta["extrato"] else "Sem movimentações.")
+    print(f"Saldo: R$ {conta['saldo']:.2f}")
+    print("===============================")
+
+
 
 def tela_cadastro():
-    while True:
-        cadastro = input(
-            """
--- BEM-VINDO AO NOSSO BANCO --
-Já possui cadastro?           
-[s] Fazer login
-[n] Criar cadastro
-
-"""
-        )
-
-        if cadastro == "s":
-            cpf = input("Digite o CPF:\n").replace(".", "").replace("-", "")
-            if cpf in lista_cpf:
-                print("Login efetuado!")
-                return cpf
-            else:
-                print("CPF não encontrado. Tente novamente.")
-
-        elif cadastro == "n":
-            print("Preencha com seus dados:\n")
-
-            nome = input("Digite seu nome:\n")
-            numero = int(input("Digite seu número:\n"))
+            nome = input("Nome: ")
+            numero = int(input("Número: "))
 
             logradouro = input("Logradouro: ").strip()
             bairro = input("Bairro: ").strip()
             cidade = input("Cidade: ").strip()
             uf = input("UF: ").strip().upper()
+
             endereco = f"{logradouro} - {bairro} - {cidade}/{uf}"
 
-            cpf = input("Digite seu CPF:\n").replace(".", "").replace("-", "")
+            cpf = input("CPF: ").replace(".", "").replace("-", "")
 
             if cpf not in lista_cpf:
                 cadastrar(nome, numero, endereco, cpf)
-                print("Agora vamos criar uma conta corrente:")
                 criar_conta_corrente(cpf)
                 return cpf
             else:
-                print("CPF já cadastrado. Faça login.")
+                print("CPF já cadastrado.")
 
 
-def operacoes_bancarias():
-    global saldo, extrato, numero_saques
-
-    menu = '''
-ESCOLHA UM SERVIÇO: 
-
-[d] Depositar
-[s] Sacar
-[e] Extrato
-[q] Sair
-
-'''
-
+def operacoes_bancarias(conta):
     while True:
-        opcao = input(menu).lower()
+        opcao = input(
+            "\n[d] Depositar\n"
+            "[s] Sacar\n"
+            "[e] Extrato\n"
+            "[r] Relatório\n"
+            "[q] Voltar\n"
+            "Escolha: "
+        ).lower()
 
-        if opcao == 'd':
-            saldo, extrato = depositar(saldo, extrato)
+        if opcao == "d":
+            depositar(conta)
+        elif opcao == "s":
+            sacar(conta)
+        elif opcao == "e":
+            tirar_extrato(conta)
+        elif opcao == "r":
+            print("\n----- RELATÓRIO DE TRANSAÇÕES -----")
+            for t in gerador_relatorios(conta["transacoes"]):
+                 print(f"{t['data_hora']} | {t['tipo']} | {t['descricao']}")
+        elif opcao == "q":
+            break
+        else:
+            print("Opção inválida.")
 
-        elif opcao == 's':
-            saldo, extrato, numero_saques = sacar(
-                saldo=saldo,
-                extrato=extrato,
-                limite=limite,
-                LIMITE_SAQUES=LIMITE_SAQUES,
-                numero_saques=numero_saques
-            )
 
-        elif opcao == 'e':
-            tirar_extrato(extrato, saldo)
 
-        elif opcao == 'q':
-            print("Obrigado por ser nosso cliente!")
+def menu_principal():
+    while True:
+        opcao = input(
+            "\n====== MENU PRINCIPAL ======\n"
+            "[1] Criar conta\n"
+            "[2] Acessar conta\n"
+            "[3] Listar contas\n"
+            "[0] Sair\n"
+            "Escolha: "
+        )
+
+        if opcao == "1":
+            tela_cadastro()
+
+        elif opcao == "2":
+            if not contas:
+                print("Nenhuma conta cadastrada.")
+                continue
+
+            numero = int(input("Digite o número da conta: "))
+            conta = next((c for c in contas if c["numero"] == numero), None)
+
+            if conta:
+                operacoes_bancarias(conta)
+            else:
+                print("Conta não encontrada.")
+
+        elif opcao == "3":
+            print("\n--- CONTAS CADASTRADAS ---")
+            for c in ContaIterador(contas):
+                print(
+                    f"Agência: {c['agencia']} | "
+                    f"Conta: {c['numero']} | "
+                    f"Titular: {c['usuario']['nome']}"
+                )
+
+        elif opcao == "0":
+            print("Obrigado por usar o sistema bancário!")
             break
 
         else:
-            print("Digite uma opção válida...")
+            print("Opção inválida.")
 
 
 def main():
-    cpf_usuario = tela_cadastro()
-    print(f"Usuário logado com CPF: {cpf_usuario}")
-    operacoes_bancarias()
-
+    menu_principal()
 
 main()
 
